@@ -1,0 +1,932 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AR Webcam Shooter - Bắn Đâu Khóc Đó (Đạn Vô Hạn)</title>
+  <!-- p5.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+  <!-- MediaPipe Hands & Camera Utils -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+    }
+    body {
+      background: #07070c;
+      color: #fff;
+      font-family: 'Courier New', Courier, monospace;
+      overflow: hidden;
+      width: 100vw;
+      height: 100vh;
+    }
+    /* Video webcam lật gương */
+    #webcam-video {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      object-fit: cover;
+      transform: scaleX(-1);
+      z-index: 1;
+      filter: contrast(1.08) brightness(0.85);
+    }
+    /* Canvas p5.js đè lên webcam */
+    canvas {
+      position: fixed !important;
+      top: 0 !important;
+      left: 0 !important;
+      z-index: 2;
+      pointer-events: none;
+    }
+    /* Giao diện điều khiển HUD */
+    #hud-top {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      right: 12px;
+      z-index: 10;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+      background: rgba(10, 10, 22, 0.78);
+      border: 2px solid #00f5d4;
+      box-shadow: 0 0 15px rgba(0, 245, 212, 0.4);
+      padding: 10px 16px;
+      border-radius: 10px;
+      backdrop-filter: blur(6px);
+    }
+    .stats-box {
+      display: flex;
+      gap: 18px;
+      align-items: center;
+      font-weight: bold;
+      font-size: 18px;
+      text-shadow: 0 0 8px #00f5d4;
+    }
+    .stat-score { color: #fee440; }
+    .stat-hp { color: #ff2a85; }
+    .stat-ammo {
+      color: #00f5d4;
+      background: rgba(0, 245, 212, 0.15);
+      padding: 4px 10px;
+      border-radius: 6px;
+      border: 1px solid #00f5d4;
+    }
+    .controls-box {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .btn {
+      background: linear-gradient(135deg, #ff2a85, #7b2cbf);
+      color: #fff;
+      border: 2px solid #fff;
+      padding: 8px 13px;
+      border-radius: 8px;
+      font-family: inherit;
+      font-weight: bold;
+      font-size: 13px;
+      cursor: pointer;
+      transition: transform 0.12s, box-shadow 0.12s;
+      box-shadow: 0 0 10px rgba(255, 42, 133, 0.6);
+    }
+    .btn:hover {
+      transform: scale(1.05);
+      box-shadow: 0 0 16px rgba(255, 42, 133, 0.95);
+    }
+    .btn-cyan {
+      background: linear-gradient(135deg, #00bbf9, #00f5d4);
+      color: #050510;
+      border-color: #050510;
+      box-shadow: 0 0 10px rgba(0, 245, 212, 0.6);
+    }
+    .btn-gold {
+      background: linear-gradient(135deg, #f15bb5, #fee440);
+      color: #111;
+      border-color: #fff;
+      box-shadow: 0 0 12px rgba(254, 228, 64, 0.7);
+    }
+    #file-input {
+      display: none;
+    }
+    #guide-banner {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 10;
+      background: rgba(0, 0, 0, 0.78);
+      border: 1px solid #fee440;
+      color: #fee440;
+      padding: 7px 16px;
+      border-radius: 20px;
+      font-size: 13px;
+      text-align: center;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+
+  <video id="webcam-video" playsinline autoplay muted></video>
+
+  <div id="hud-top">
+    <div class="stats-box">
+      <div class="stat-score">🏆 ĐIỂM: <span id="ui-score">0</span></div>
+      <div class="stat-hp">❤️ MÁU: <span id="ui-hp">100</span>%</div>
+      <div class="stat-ammo">🔫 ĐẠN: ∞ (VÔ HẠN)</div>
+    </div>
+
+    <div class="controls-box">
+      <label for="file-input" class="btn">📸 Nhét Ảnh Kẻ Địch</label>
+      <input type="file" id="file-input" accept="image/*" multiple>
+      <button class="btn btn-cyan" id="btn-snap">🤳 Chụp Webcam</button>
+      <button class="btn btn-gold" id="btn-export" title="Tải về file index.html đã nhúng sẵn ảnh bạn vừa chọn để up lên GitHub/Netlify">💾 Xuất Web Kèm Ảnh</button>
+      <button class="btn" id="btn-restart">🔄 Chơi Lại</button>
+    </div>
+  </div>
+
+  <div id="guide-banner">
+    🖐️ Giơ ngón trỏ trước Webcam để ngắm • Chụm ngón cái & ngón trỏ (hoặc giữ Chuột trái / Phím Space) để XẢ ĐẠN LIÊN THANH!
+  </div>
+
+  <script>
+    /*************************************************************************
+     * 1. DANH SÁCH ẢNH MẶC ĐỊNH (TỰ ĐỘNG NẠP KHI NGƯỜI KHÁC MỞ LINK WEB)
+     *************************************************************************/
+    // Cách A: Nếu bạn để file ảnh cùng thư mục với index.html trên GitHub/Netlify
+    const DEFAULT_IMAGE_FILES = [
+      'muc-tieu.jpg',
+      'muc-tieu.png',
+      'enemy.jpg'
+    ];
+
+    // Cách B: Mảng chứa ảnh Base64 được nhúng tự động khi bấm nút "💾 Xuất Web Kèm Ảnh"
+    const EMBEDDED_ENEMY_IMAGES = [];
+
+    // Lưu các chuỗi Base64 của ảnh người dùng tải lên để xuất file HTML
+    let uploadedBase64List = [...EMBEDDED_ENEMY_IMAGES];
+
+    /*************************************************************************
+     * 2. HỆ THỐNG ÂM THANH 8-BIT & TIẾNG THÉT THẤU TRỜI (WEB AUDIO API)
+     *************************************************************************/
+    class SoundManager {
+      constructor() {
+        this.ctx = null;
+        this.bgmInterval = null;
+        this.lastVoiceTime = 0;
+      }
+
+      init() {
+        if (!this.ctx) {
+          const AudioCtx = window.AudioContext || window.webkitAudioContext;
+          this.ctx = new AudioCtx();
+        }
+        if (this.ctx.state === 'suspended') {
+          this.ctx.resume();
+        }
+      }
+
+      playShoot() {
+        this.init();
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(680, now);
+        osc.frequency.exponentialRampToValueAtTime(90, now + 0.09);
+
+        gain.gain.setValueAtTime(0.22, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
+
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.09);
+      }
+
+      playScream(isFatal = false) {
+        this.init();
+        const now = this.ctx.currentTime;
+        const dur = isFatal ? 0.65 : 0.35;
+
+        // 2 Oscillator lệch tần số tạo tiếng hét chói tai
+        const osc1 = this.ctx.createOscillator();
+        const osc2 = this.ctx.createOscillator();
+        const lfo = this.ctx.createOscillator();
+        const lfoGain = this.ctx.createGain();
+        const mainGain = this.ctx.createGain();
+
+        osc1.type = 'sawtooth';
+        osc2.type = 'square';
+
+        const startFreq = isFatal ? 950 : 800;
+        const peakFreq = isFatal ? 1550 : 1350;
+        const endFreq = isFatal ? 180 : 280;
+
+        osc1.frequency.setValueAtTime(startFreq, now);
+        osc1.frequency.linearRampToValueAtTime(peakFreq, now + dur * 0.25);
+        osc1.frequency.exponentialRampToValueAtTime(endFreq, now + dur);
+
+        osc2.frequency.setValueAtTime(startFreq * 1.03, now);
+        osc2.frequency.linearRampToValueAtTime(peakFreq * 1.04, now + dur * 0.25);
+        osc2.frequency.exponentialRampToValueAtTime(endFreq * 0.98, now + dur);
+
+        // Rung thanh quản (Vibrato)
+        lfo.frequency.value = 32;
+        lfoGain.gain.value = 65;
+        lfo.connect(lfoGain);
+        lfoGain.connect(osc1.frequency);
+        lfoGain.connect(osc2.frequency);
+
+        mainGain.gain.setValueAtTime(0.26, now);
+        mainGain.gain.exponentialRampToValueAtTime(0.001, now + dur);
+
+        osc1.connect(mainGain);
+        osc2.connect(mainGain);
+        mainGain.connect(this.ctx.destination);
+
+        osc1.start(now);
+        osc2.start(now);
+        lfo.start(now);
+        osc1.stop(now + dur);
+        osc2.stop(now + dur);
+        lfo.stop(now + dur);
+
+        // Phát giọng kêu tha Tiếng Việt (Web Speech API)
+        if ('speechSynthesis' in window && millis() - this.lastVoiceTime > 1100) {
+          this.lastVoiceTime = millis();
+          window.speechSynthesis.cancel();
+          const cries = [
+            "Á á á tha cho em!",
+            "Ối giời ơi đau quá!",
+            "Em chừa rồi đại ca ơi!",
+            "Cứu mạng đừng bắn nữa!",
+            "Bắn lắm thế đại ca ơi!",
+            "Á hự, bể đầu em rồi!"
+          ];
+          const utter = new SpeechSynthesisUtterance(cries[Math.floor(Math.random() * cries.length)]);
+          utter.lang = 'vi-VN';
+          utter.pitch = 2.0;
+          utter.rate = 1.45;
+          utter.volume = 1.0;
+          window.speechSynthesis.speak(utter);
+        }
+      }
+
+      playScore() {
+        this.init();
+        const notes = [523.25, 659.25, 783.99, 1046.5];
+        notes.forEach((freq, idx) => {
+          const now = this.ctx.currentTime + idx * 0.055;
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'square';
+          osc.frequency.setValueAtTime(freq, now);
+          gain.gain.setValueAtTime(0.14, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start(now);
+          osc.stop(now + 0.08);
+        });
+      }
+
+      playGameOver() {
+        this.init();
+        const notes = [400, 350, 300, 220];
+        notes.forEach((freq, idx) => {
+          const now = this.ctx.currentTime + idx * 0.16;
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(freq, now);
+          gain.gain.setValueAtTime(0.2, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start(now);
+          osc.stop(now + 0.15);
+        });
+      }
+    }
+
+    const sound = new SoundManager();
+
+    /*************************************************************************
+     * 3. BIẾN TOÀN CỤC & QUẢN LÝ GAME (p5.js)
+     *************************************************************************/
+    let enemyImages = [];
+    let enemies = [];
+    let particles = [];
+    let score = 0;
+    let playerHP = 100;
+    let gameOver = false;
+    let screenShake = 0;
+
+    // Tâm ngắm & điều khiển
+    let aimX = window.innerWidth / 2;
+    let aimY = window.innerHeight / 2;
+    let targetAimX = aimX;
+    let targetAimY = aimY;
+    let handDetected = false;
+    let isPinching = false;
+    let lastShotTime = 0;
+    const FIRE_INTERVAL = 110; // Xả đạn liên thanh 110ms/viên
+
+    const BEGGING_LINES = [
+      "Á á tha cho em!! 😭",
+      "Ối giời ơi đau quá!!",
+      "Em chừa rồi đại ca ơi!",
+      "Cứu mạng! Đừng bắn nữa!",
+      "Bắn lắm thế đại ca!!",
+      "Thủng mặt em rồi hu hu!"
+    ];
+
+    function setup() {
+      createCanvas(windowWidth, windowHeight);
+      textFont('Courier New');
+
+      // Tự động nạp các ảnh đã nhúng hoặc ảnh mặc định trong thư mục
+      loadDefaultAndEmbeddedImages();
+
+      // Khởi tạo kẻ địch ban đầu
+      for (let i = 0; i < 4; i++) {
+        enemies.push(new Enemy());
+      }
+    }
+
+    function windowResized() {
+      resizeCanvas(windowWidth, windowHeight);
+    }
+
+    function loadDefaultAndEmbeddedImages() {
+      // 1. Nạp từ mảng Base64 nhúng sẵn
+      EMBEDDED_ENEMY_IMAGES.forEach(dataUrl => {
+        loadImage(dataUrl, img => {
+          enemyImages.push(img);
+        });
+      });
+
+      // 2. Thử nạp các file ảnh đặt cùng thư mục (nếu có)
+      DEFAULT_IMAGE_FILES.forEach(fileName => {
+        loadImage(
+          fileName,
+          img => { enemyImages.push(img); },
+          () => { /* Bỏ qua nếu không có file */ }
+        );
+      });
+    }
+
+    /*************************************************************************
+     * 4. CLASS KẺ ĐỊCH VỚI HIỆU ỨNG TRÚNG ĐẠN "THÊ THẢM"
+     *************************************************************************/
+    class Enemy {
+      constructor() {
+        this.r = random(58, 78);
+        this.x = random(this.r + 40, width - this.r - 40);
+        this.y = random(this.r + 80, height - this.r - 80);
+        this.vx = random(-3.2, 3.2) || 2.2;
+        this.vy = random(-2.8, 2.8) || -2.0;
+
+        this.maxHp = 4;
+        this.hp = this.maxHp;
+        this.img = enemyImages.length > 0 ? random(enemyImages) : null;
+
+        this.hitFlash = 0;
+        this.shakeTimer = 0;
+        this.cryText = "";
+        this.cryTimer = 0;
+
+        this.isDead = false;
+        this.rot = 0;
+        this.vRot = 0;
+        this.tearOffset = random(100);
+      }
+
+      update() {
+        if (this.isDead) {
+          this.vy += 0.55; // Trọng lực rơi ragdoll
+          this.x += this.vx;
+          this.y += this.vy;
+          this.rot += this.vRot;
+          return;
+        }
+
+        // Nếu người dùng mới thêm ảnh mà kẻ địch chưa có ảnh thì gắn luôn
+        if (!this.img && enemyImages.length > 0) {
+          this.img = random(enemyImages);
+        }
+
+        this.x += this.vx;
+        this.y += this.vy;
+
+        if (this.x < this.r || this.x > width - this.r) this.vx *= -1;
+        if (this.y < this.r + 70 || this.y > height - this.r - 40) this.vy *= -1;
+
+        if (this.hitFlash > 0) this.hitFlash--;
+        if (this.shakeTimer > 0) this.shakeTimer--;
+        if (this.cryTimer > 0) this.cryTimer--;
+
+        // Tấn công nhẹ người chơi nếu sống quá lâu
+        if (frameCount % 240 === 0 && !gameOver) {
+          playerHP = max(0, playerHP - 2);
+          updateHUD();
+          if (playerHP <= 0) {
+            gameOver = true;
+            sound.playGameOver();
+          }
+        }
+      }
+
+      hit(hitX, hitY) {
+        if (this.isDead) return;
+        this.hp--;
+        this.hitFlash = 8;
+        this.shakeTimer = 18;
+        this.cryText = random(BEGGING_LINES);
+        this.cryTimer = 75;
+
+        // Đẩy lùi kẻ địch khi trúng đạn
+        this.vx = random(-5, 5);
+        this.vy = random(-4, -1);
+
+        // Văng hạt máu & nước mắt 8-bit
+        for (let i = 0; i < 16; i++) {
+          particles.push(new Particle(hitX, hitY, i % 2 === 0 ? '#ff1744' : '#00e5ff'));
+        }
+
+        if (this.hp <= 0) {
+          this.isDead = true;
+          this.vy = -8;
+          this.vx = random(-6, 6);
+          this.vRot = random(-0.25, 0.25) || 0.18;
+          score += 100;
+          updateHUD();
+          sound.playScream(true);
+          sound.playScore();
+        } else {
+          score += 20;
+          updateHUD();
+          sound.playScream(false);
+        }
+      }
+
+      draw() {
+        push();
+        let sx = this.shakeTimer > 0 ? random(-9, 9) : 0;
+        let sy = this.shakeTimer > 0 ? random(-9, 9) : 0;
+        translate(this.x + sx, this.y + sy);
+        rotate(this.rot);
+
+        const dmg = this.maxHp - this.hp; // Mức độ thê thảm: 0 -> 4
+
+        // 1. Vẽ ảnh khuôn mặt hoặc mặt meme mặc định
+        if (this.img) {
+          push();
+          drawingContext.save();
+          drawingContext.beginPath();
+          drawingContext.arc(0, 0, this.r, 0, Math.PI * 2);
+          drawingContext.clip();
+          imageMode(CENTER);
+          image(this.img, 0, 0, this.r * 2, this.r * 2);
+          drawingContext.restore();
+          pop();
+        } else {
+          fill(255, 220, 120);
+          stroke(255);
+          strokeWeight(3);
+          circle(0, 0, this.r * 2);
+          // Mắt mũi mặc định
+          fill(20);
+          noStroke();
+          circle(-this.r * 0.35, -this.r * 0.15, 14);
+          circle(this.r * 0.35, -this.r * 0.15, 14);
+          stroke(20);
+          strokeWeight(4);
+          noFill();
+          arc(0, this.r * 0.25, this.r * 0.6, this.r * 0.4, PI, TWO_PI);
+        }
+
+        // Viền tròn theo máu
+        noFill();
+        stroke(this.hitFlash > 0 ? '#ff0033' : '#00f5d4');
+        strokeWeight(4);
+        circle(0, 0, this.r * 2);
+
+        // Chớp đỏ khi trúng đạn
+        if (this.hitFlash > 0) {
+          noStroke();
+          fill(255, 0, 50, 130);
+          circle(0, 0, this.r * 2);
+        }
+
+        // 2. VẼ ĐÈ HIỆU ỨNG THÊ THẢM THEO CẤP ĐỘ TRÚNG ĐẠN
+        if (dmg >= 1) {
+          // Quầng mắt thâm tím + Hai hàng nước mắt chảy ròng ròng
+          noStroke();
+          fill(75, 0, 130, 150);
+          ellipse(-this.r * 0.35, -this.r * 0.12, this.r * 0.48, this.r * 0.35);
+          ellipse(this.r * 0.35, -this.r * 0.12, this.r * 0.48, this.r * 0.35);
+
+          // Suối nước mắt xanh chảy xuống
+          fill(0, 229, 255, 200);
+          let tearAnim = (frameCount * 4 + this.tearOffset) % (this.r * 0.9);
+          rect(-this.r * 0.42, -this.r * 0.05, 10, this.r * 0.85, 5);
+          rect(this.r * 0.32, -this.r * 0.05, 10, this.r * 0.85, 5);
+          circle(-this.r * 0.37, tearAnim, 12);
+          circle(this.r * 0.37, tearAnim, 12);
+
+          // Miệng mếu khóc
+          stroke(180, 0, 30);
+          strokeWeight(4);
+          fill(90, 0, 0);
+          arc(0, this.r * 0.48, this.r * 0.65, this.r * 0.45, PI, TWO_PI, CHORD);
+        }
+
+        if (dmg >= 2) {
+          // Cục u sưng đỏ chót nhấp nháy trên đỉnh đầu
+          push();
+          let pulse = sin(frameCount * 0.35) * 4;
+          fill(255, 40, 70);
+          stroke(160, 0, 20);
+          strokeWeight(3);
+          ellipse(-this.r * 0.25, -this.r * 0.98, 34 + pulse, 28 + pulse);
+          // Băng cá nhân dán chéo mặt
+          translate(this.r * 0.28, this.r * 0.05);
+          rotate(0.45);
+          fill(245, 215, 175);
+          stroke(160, 120, 80);
+          strokeWeight(2);
+          rectMode(CENTER);
+          rect(0, 0, 44, 15, 4);
+          pop();
+        }
+
+        if (dmg >= 3 || this.isDead) {
+          // Mắt X_X bất tỉnh + Sao quay vòng quanh đầu
+          stroke(255, 0, 0);
+          strokeWeight(4);
+          let ex = this.r * 0.35;
+          let ey = -this.r * 0.14;
+          line(-ex - 10, ey - 10, -ex + 10, ey + 10);
+          line(-ex + 10, ey - 10, -ex - 10, ey + 10);
+          line(ex - 10, ey - 10, ex + 10, ey + 10);
+          line(ex + 10, ey - 10, ex - 10, ey + 10);
+
+          // Sao choáng váng quay trên đầu
+          for (let s = 0; s < 3; s++) {
+            let ang = frameCount * 0.12 + s * (TWO_PI / 3);
+            let sxStar = cos(ang) * (this.r * 0.7);
+            let syStar = -this.r * 1.15 + sin(ang) * 10;
+            noStroke();
+            fill('#fee440');
+            circle(sxStar, syStar, 10);
+          }
+        }
+
+        // 3. Thanh máu & Bong bóng thoại van xin
+        if (!this.isDead) {
+          let barW = this.r * 1.4;
+          fill(0, 0, 0, 180);
+          stroke(255);
+          strokeWeight(1.5);
+          rect(-barW / 2, this.r + 12, barW, 10, 4);
+          noStroke();
+          fill('#ff2a85');
+          rect(-barW / 2, this.r + 12, barW * (this.hp / this.maxHp), 10, 4);
+
+          if (this.cryTimer > 0 && this.cryText) {
+            push();
+            translate(0, -this.r - 36);
+            textSize(15);
+            textStyle(BOLD);
+            let tw = textWidth(this.cryText) + 22;
+            fill(255, 255, 255, 240);
+            stroke('#ff0055');
+            strokeWeight(2.5);
+            rectMode(CENTER);
+            rect(0, 0, tw, 32, 12);
+            noStroke();
+            fill('#d90429');
+            textAlign(CENTER, CENTER);
+            text(this.cryText, 0, 1);
+            pop();
+          }
+        }
+
+        pop();
+      }
+    }
+
+    class Particle {
+      constructor(x, y, col) {
+        this.x = x;
+        this.y = y;
+        this.vx = random(-7, 7);
+        this.vy = random(-8, 5);
+        this.size = random(6, 12);
+        this.col = col;
+        this.life = 255;
+      }
+      update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.vy += 0.35;
+        this.life -= 10;
+      }
+      draw() {
+        noStroke();
+        fill(this.col);
+        rect(this.x, this.y, this.size, this.size);
+      }
+    }
+
+    /*************************************************************************
+     * 5. VÒNG LẶP VẼ CHÍNH & BẮN LIÊN THANH
+     *************************************************************************/
+    function draw() {
+      clear();
+
+      // Làm mượt tâm ngắm
+      aimX = lerp(aimX, targetAimX, 0.35);
+      aimY = lerp(aimY, targetAimY, 0.35);
+
+      // Kiểm tra giữ cò xả đạn liên thanh (Cử chỉ tay, Chuột trái, hoặc phím Space)
+      const wantToFire = isPinching || mouseIsPressed || keyIsDown(32);
+      if (wantToFire && !gameOver && millis() - lastShotTime > FIRE_INTERVAL) {
+        triggerShot(aimX, aimY);
+        lastShotTime = millis();
+      }
+
+      push();
+      if (screenShake > 0) {
+        translate(random(-screenShake, screenShake), random(-screenShake, screenShake));
+        screenShake *= 0.82;
+        if (screenShake < 0.5) screenShake = 0;
+      }
+
+      // Cập nhật & vẽ kẻ địch
+      for (let i = enemies.length - 1; i >= 0; i--) {
+        const e = enemies[i];
+        e.update();
+        e.draw();
+        if (e.isDead && e.y > height + 160) {
+          enemies.splice(i, 1);
+          enemies.push(new Enemy());
+        }
+      }
+
+      // Cập nhật hạt máu/nước mắt 8-bit
+      for (let i = particles.length - 1; i >= 0; i--) {
+        particles[i].update();
+        particles[i].draw();
+        if (particles[i].life <= 0) particles.splice(i, 1);
+      }
+
+      // Vẽ tâm ngắm Laser Neon
+      drawCrosshair(aimX, aimY, wantToFire);
+      pop();
+
+      if (gameOver) {
+        drawGameOverOverlay();
+      }
+    }
+
+    function triggerShot(x, y) {
+      sound.playShoot();
+      screenShake = 9;
+
+      // Hiệu ứng tia lửa đạn tại tâm ngắm
+      for (let i = 0; i < 6; i++) {
+        particles.push(new Particle(x, y, '#fee440'));
+      }
+
+      // Kiểm tra trúng kẻ địch
+      for (let i = enemies.length - 1; i >= 0; i--) {
+        const e = enemies[i];
+        if (!e.isDead && dist(x, y, e.x, e.y) <= e.r + 18) {
+          e.hit(x, y);
+          break;
+        }
+      }
+    }
+
+    function drawCrosshair(x, y, firing) {
+      push();
+      translate(x, y);
+      stroke(firing ? '#ff0055' : '#00f5d4');
+      strokeWeight(firing ? 3.5 : 2.5);
+      noFill();
+      let rad = firing ? 22 : 30;
+      circle(0, 0, rad * 2);
+      line(-rad - 12, 0, -8, 0);
+      line(8, 0, rad + 12, 0);
+      line(0, -rad - 12, 0, -8);
+      line(0, 8, 0, rad + 12);
+
+      noStroke();
+      fill('#ff0055');
+      circle(0, 0, 7);
+
+      fill('#fee440');
+      textSize(12);
+      textAlign(CENTER);
+      text("∞ AUTO-FIRE", 0, rad + 22);
+      pop();
+    }
+
+    function drawGameOverOverlay() {
+      push();
+      fill(0, 0, 0, 190);
+      rect(0, 0, width, height);
+      textAlign(CENTER, CENTER);
+      fill('#ff2a85');
+      textSize(54);
+      textStyle(BOLD);
+      text("GAME OVER", width / 2, height / 2 - 30);
+      fill('#fee440');
+      textSize(24);
+      text("ĐIỂM CỦA BẠN: " + score + " • BẤM 'CHƠI LẠI' ĐỂ PHỤC THÙ!", width / 2, height / 2 + 28);
+      pop();
+    }
+
+    function mouseMoved() {
+      if (!handDetected) {
+        targetAimX = mouseX;
+        targetAimY = mouseY;
+      }
+    }
+
+    function mouseDragged() {
+      if (!handDetected) {
+        targetAimX = mouseX;
+        targetAimY = mouseY;
+      }
+    }
+
+    function updateHUD() {
+      document.getElementById('ui-score').textContent = score;
+      document.getElementById('ui-hp').textContent = playerHP;
+    }
+
+    /*************************************************************************
+     * 6. NHẬN DIỆN BÀN TAY QUA WEBCAM (MEDIAPIPE HANDS)
+     *************************************************************************/
+    const videoElement = document.getElementById('webcam-video');
+
+    function onHandResults(results) {
+      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+        handDetected = true;
+        const lm = results.multiHandLandmarks[0];
+
+        // Landmark 8: Đầu ngón trỏ (Lật ngược trục X theo gương: 1 - lm[8].x)
+        targetAimX = (1 - lm[8].x) * width;
+        targetAimY = lm[8].y * height;
+
+        // Cử chỉ bắn: Chụm ngón cái (4) vào gần gốc hoặc đầu ngón trỏ (5, 6, 8)
+        const dPinch1 = Math.hypot(lm[4].x - lm[6].x, lm[4].y - lm[6].y);
+        const dPinch2 = Math.hypot(lm[4].x - lm[8].x, lm[4].y - lm[8].y);
+        isPinching = (dPinch1 < 0.075 || dPinch2 < 0.075);
+      } else {
+        handDetected = false;
+        isPinching = false;
+      }
+    }
+
+    const hands = new Hands({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+    hands.setOptions({
+      maxNumHands: 1,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.6,
+      minTrackingConfidence: 0.6
+    });
+    hands.onResults(onHandResults);
+
+    const camera = new Camera(videoElement, {
+      onFrame: async () => {
+        await hands.send({ image: videoElement });
+      },
+      width: 640,
+      height: 480
+    });
+    camera.start().catch(() => {
+      console.warn("Không tìm thấy Webcam, bạn vẫn có thể chơi bằng Chuột & Phím Space!");
+    });
+
+    /*************************************************************************
+     * 7. TẢI ẢNH KẺ ĐỊCH & XUẤT FILE HTML ĐÃ NHÚNG SẴN ẢNH (BASE64)
+     *************************************************************************/
+    function resizeAndStoreBase64(dataUrl, callback) {
+      const imgEl = new Image();
+      imgEl.onload = () => {
+        const offCanvas = document.createElement('canvas');
+        const maxSize = 240;
+        let w = imgEl.width;
+        let h = imgEl.height;
+        if (w > h && w > maxSize) {
+          h = Math.round((h * maxSize) / w);
+          w = maxSize;
+        } else if (h >= w && h > maxSize) {
+          w = Math.round((w * maxSize) / h);
+          h = maxSize;
+        }
+        offCanvas.width = w;
+        offCanvas.height = h;
+        const ctx = offCanvas.getContext('2d');
+        ctx.drawImage(imgEl, 0, 0, w, h);
+        const compressedBase64 = offCanvas.toDataURL('image/jpeg', 0.82);
+        uploadedBase64List.push(compressedBase64);
+        callback(compressedBase64);
+      };
+      imgEl.src = dataUrl;
+    }
+
+    function applyNewEnemyImage(p5Img) {
+      enemyImages.push(p5Img);
+      enemies.forEach(e => {
+        e.img = random(enemyImages);
+      });
+    }
+
+    // Xử lý khi chọn ảnh từ máy
+    document.getElementById('file-input').addEventListener('change', (e) => {
+      const files = Array.from(e.target.files);
+      files.forEach(file => {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          resizeAndStoreBase64(ev.target.result, (compressedUrl) => {
+            loadImage(compressedUrl, (p5Img) => {
+              applyNewEnemyImage(p5Img);
+            });
+          });
+        };
+        reader.readAsDataURL(file);
+      });
+    });
+
+    // Xử lý chụp trực tiếp từ Webcam làm mặt kẻ địch
+    document.getElementById('btn-snap').addEventListener('click', () => {
+      if (!videoElement.videoWidth) return;
+      const snapCanvas = document.createElement('canvas');
+      snapCanvas.width = 240;
+      snapCanvas.height = 240;
+      const sCtx = snapCanvas.getContext('2d');
+      const minDim = Math.min(videoElement.videoWidth, videoElement.videoHeight);
+      const sx = (videoElement.videoWidth - minDim) / 2;
+      const sy = (videoElement.videoHeight - minDim) / 2;
+      sCtx.drawImage(videoElement, sx, sy, minDim, minDim, 0, 0, 240, 240);
+      const dataUrl = snapCanvas.toDataURL('image/jpeg', 0.85);
+      uploadedBase64List.push(dataUrl);
+      loadImage(dataUrl, (p5Img) => {
+        applyNewEnemyImage(p5Img);
+      });
+    });
+
+    // Nút Xuất File index.html đã nhúng sẵn toàn bộ ảnh vừa chọn
+    document.getElementById('btn-export').addEventListener('click', () => {
+      if (uploadedBase64List.length === 0) {
+        alert("Bạn hãy bấm '📸 Nhét Ảnh Kẻ Địch' hoặc '🤳 Chụp Webcam' trước khi xuất file nhé!");
+        return;
+      }
+      let rawHtml = "<!DOCTYPE html>\n" + document.documentElement.outerHTML;
+      // Nhúng mảng Base64 vào biến EMBEDDED_ENEMY_IMAGES trong file xuất ra
+      rawHtml = rawHtml.replace(
+        /const EMBEDDED_ENEMY_IMAGES = \[[\s\S]*?\];/,
+        `const EMBEDDED_ENEMY_IMAGES = ${JSON.stringify(uploadedBase64List)};`
+      );
+      const blob = new Blob([rawHtml], { type: 'text/html;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'index.html';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    });
+
+    // Nút Chơi lại
+    document.getElementById('btn-restart').addEventListener('click', () => {
+      score = 0;
+      playerHP = 100;
+      gameOver = false;
+      enemies = [];
+      for (let i = 0; i < 4; i++) enemies.push(new Enemy());
+      updateHUD();
+    });
+  </script>
+</body>
+</html>
